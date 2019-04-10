@@ -52,6 +52,8 @@ func main() {
 	)
 	if !config.ipv6 {
 		t, err = NewTraceV4(config)
+	} else {
+		t, err = NewTraceV6(config)
 	}
 	if err != nil {
 		fmt.Println(err)

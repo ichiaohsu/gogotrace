@@ -50,6 +50,12 @@ It is possible to set the socket timeout, for example, 10 seconds, when `gogotra
 ./gogotrace -w 10s www.google.com
 ```
 
+#### IPv6
+This is a experimenting function. It is **not tested at all**!
+```bash
+./gogotrace -6 www.google.com
+```
+
 #### Help
 As any other friendly commands, `gogotrace` provide help at any time!
 ```bash
