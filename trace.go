@@ -8,60 +8,22 @@ import (
 
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
-	"golang.org/x/net/ipv6"
 )
 
-type Config struct {
-	// Source string, in either Domain Name string or IP string
-	source string
-	// Max hop limit
-	maxTTL int
-	// Socket will timeout after denoted period, default 5s
-	timeout time.Duration
+type trace interface {
+	Send() (results reports, err error)
 }
 
-type Trace struct {
-	// Destination IP Address
-	dst *net.IPAddr
-	// Set identical argement parsed from CLI
-	Config
+type TraceV4 struct {
+	dst *net.IPAddr // Destination IP Address
+	// dst     net.Addr // Destination IP Address
+	network string // Network listen proto
+	address string
+	Config  // Set identical argement parsed from CLI
 }
 
-type reports []Hop
+func createICMP(typ icmp.Type, seq int) (b []byte, err error) {
 
-type Hop struct {
-	ID      int
-	Addr    string
-	RTT     time.Duration
-	HopTime time.Duration
-}
-
-func (h Hop) formatPrint() {
-	fmt.Printf("%d %s  %v\n", h.ID, h.Addr, h.RTT)
-}
-
-// MaxHopTime print the max time spend between consecutive hops
-func (r reports) MaxHopTime() {
-
-	var maxIndex int
-	var maxDuration time.Duration
-	for i, v := range r {
-		if v.HopTime > maxDuration {
-			maxDuration = v.HopTime
-			maxIndex = i
-		}
-	}
-	fmt.Printf("The longest hop happened at %s . It took %v\n", r[maxIndex].Addr, r[maxIndex].HopTime)
-}
-
-func createICMP(protoType string, seq int) (b []byte, err error) {
-
-	var typ icmp.Type
-	if protoType == "ipv4" {
-		typ = ipv4.ICMPTypeEcho
-	} else {
-		typ = ipv6.ICMPTypeEchoRequest
-	}
 	m := icmp.Message{
 		Type: typ,
 		Code: 0,
@@ -76,27 +38,33 @@ func createICMP(protoType string, seq int) (b []byte, err error) {
 }
 
 // NewTrace return a new Trace Object
-func NewTrace(config Config) (*Trace, error) {
+func NewTraceV4(config Config) (*TraceV4, error) {
 
 	// Parse ip address
 	// Accept both ip string or domain names
-	dst, err := net.ResolveIPAddr("ip4", config.source)
+	ipAddr, err := net.ResolveIPAddr("ip4", config.source)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Printf("tracerout to %s(%v), %d hop max\n", config.source, dst, config.maxTTL)
 
-	t := &Trace{
-		dst:    dst,
-		Config: config,
+	fmt.Printf("tracerout to %s(%v), %d hop max\n", config.source, ipAddr, config.maxTTL)
+
+	// var dst net.Addr = ipAddr
+	t := &TraceV4{
+		network: "ip4:icmp",
+		address: "0.0.0.0",
+		dst:     ipAddr,
+		Config:  config,
 	}
 	return t, nil
 }
 
-func (t *Trace) Send() (results reports, err error) {
+func (t *TraceV4) Send() (results reports, err error) {
 
 	// Listen to ICMP packet on ip4
-	conn, err := net.ListenPacket("ip4:icmp", "0.0.0.0")
+	// conn, err := net.ListenPacket("ip4:icmp", "0.0.0.0")
+	conn, err := net.ListenPacket(t.network, t.address)
+	// conn, err := icmp.ListenPacket(t.proto, "0.0.0.0")
 	if err != nil {
 		return results, err
 	}
@@ -105,18 +73,16 @@ func (t *Trace) Send() (results reports, err error) {
 	// Create ipv4 PacketConn to enable setTTL
 	p := ipv4.NewPacketConn(conn)
 
+	// received bytes
+	rb := make([]byte, 1500)
 	// Start the loop
 TraceLoop:
 	for i := 1; i < t.maxTTL; i++ {
 
 		// hop is the result of single probe
 		var hop Hop
-
-		if err != nil {
-			return results, err
-		}
 		// Create ICMP bytes message
-		b, err := createICMP("ipv4", i)
+		b, err := createICMP(ipv4.ICMPTypeEcho, i)
 		if err != nil {
 			return results, err
 		}
@@ -134,8 +100,6 @@ TraceLoop:
 			return results, err
 		}
 
-		// received bytes
-		rb := make([]byte, 1500)
 		n, _, peer, err := p.ReadFrom(rb)
 		if err != nil {
 			hop = Hop{ID: i, Addr: "*"}
